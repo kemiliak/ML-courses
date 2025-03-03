@@ -1,0 +1,374 @@
+# PIPELINE DEFINITION
+# Name: monitoring-pipeline
+# Description: Monitoring model performance, target and data drift using Evidently
+# Inputs:
+#    column_mapping_dict: dict
+#    evidently_monitor_uri: str
+#    evidently_project_id: str
+#    ground_truth_bucket_name: str
+#    inputs_outputs_bucket_name: str
+#    mlflow_s3_endpoint_url: str
+#    mlflow_tracking_uri: str
+#    quarter: int
+#    registered_model_name: str
+#    year: int
+components:
+  comp-combine-ground-truth:
+    executorLabel: exec-combine-ground-truth
+    inputDefinitions:
+      parameters:
+        ground_truth_bucket_name:
+          parameterType: STRING
+        inputs_outputs_bucket_name:
+          parameterType: STRING
+        quarter:
+          parameterType: NUMBER_INTEGER
+        s3_endpoint_url:
+          parameterType: STRING
+        year:
+          parameterType: NUMBER_INTEGER
+    outputDefinitions:
+      artifacts:
+        prod_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-get-production-model-version:
+    executorLabel: exec-get-production-model-version
+    inputDefinitions:
+      parameters:
+        mlflow_tracking_uri:
+          parameterType: STRING
+        registered_model_name:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        model_version:
+          parameterType: STRING
+        run_id:
+          parameterType: STRING
+  comp-monitor:
+    executorLabel: exec-monitor
+    inputDefinitions:
+      artifacts:
+        prod_dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        column_mapping_dict:
+          parameterType: STRUCT
+        evidently_monitor_uri:
+          parameterType: STRING
+        evidently_project_id:
+          parameterType: STRING
+        mlflow_run_id:
+          parameterType: STRING
+        mlflow_s3_endpoint_url:
+          parameterType: STRING
+        mlflow_tracking_uri:
+          parameterType: STRING
+        prod_model_version:
+          parameterType: STRING
+        quarter:
+          parameterType: NUMBER_INTEGER
+        year:
+          parameterType: NUMBER_INTEGER
+deploymentSpec:
+  executors:
+    exec-combine-ground-truth:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - combine_ground_truth
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'pandas~=2.2.1'\
+          \ 'minio~=7.1.17' 'fastparquet~=2023.10.1' 'pyarrow~=14.0.1' 'numpy~=1.26.2'\
+          \ 'kfp==2.0.1' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef combine_ground_truth(\n    year: int, \n    quarter: int, \n\
+          \    s3_endpoint_url: str, \n    inputs_outputs_bucket_name: str,\n    ground_truth_bucket_name:\
+          \ str,\n    prod_data: Output[Dataset]\n):\n    \"\"\"\n    Combine ground\
+          \ truth with the model inputs+outputs based on the \"request_id\" index\n\
+          \    Args: \n        year and quarter: The time range of the data to be\
+          \ combined\n        s3_endpoint_url: The URL of the MinIO service where\
+          \ the data is stored\n        inputs_outputs_bucket_name: Name of the bucket\
+          \ where model inputs+outputs data is stored\n        ground_truth_bucket_name:\
+          \ Name of the bucket where ground truth is stored\n        prod_data: The\
+          \ output of type Dataset that the combined data (inputs+outputs+ground truth\
+          \ in a Parquet file) should be saved\n    \"\"\"\n    from minio import\
+          \ Minio\n    import pandas as pd\n    import os\n    import io\n\n    def\
+          \ read_df_from_s3(bucket_name: str, object_name: str, function: Callable,\
+          \ **kwargs) -> pd.DataFrame:\n        obj = minio_client.get_object(\n \
+          \           bucket_name=bucket_name, object_name=object_name)\n        df\
+          \ = function(io.BytesIO(obj.data), **kwargs)\n        return df\n\n    minio_client\
+          \ = Minio(\n        endpoint=s3_endpoint_url.split(\"://\")[1],\n      \
+          \  access_key=os.getenv(\"AWS_ACCESS_KEY_ID\"),\n        secret_key=os.getenv(\"\
+          AWS_SECRET_ACCESS_KEY\"),\n        secure=False\n    )\n\n    inputs_outputs_filename\
+          \ = f\"{year}_{quarter}.csv\"\n    ground_truth_filename = f\"{year}_{quarter}_y.csv\"\
+          \n\n    # inputs-outputs DataFrame\n    inputs_outputs_df = read_df_from_s3(\n\
+          \        bucket_name=inputs_outputs_bucket_name, object_name=inputs_outputs_filename,\
+          \ function=pd.read_csv, index_col=\"request_id\")\n    # Ground truth DataFrame\n\
+          \    ground_truth_df = read_df_from_s3(bucket_name=ground_truth_bucket_name,\n\
+          \                                      object_name=ground_truth_filename,\
+          \ function=pd.read_csv, index_col=\"request_id\")\n\n    ### START CODE\
+          \ HERE\n    df = inputs_outputs_df.merge(ground_truth_df, left_index=True,\
+          \ right_index=True)\n    df = df.reset_index(drop=True)\n    df.to_parquet(prod_data.path)\n\
+          \    ### END CODE HERE\n\n"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          value: minioadmin
+        - name: AWS_SECRET_ACCESS_KEY
+          value: minioadmin
+        image: python:3.11
+    exec-get-production-model-version:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - get_production_model_version
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'mlflow==2.9.2'\
+          \ 'kfp==2.0.1' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef get_production_model_version(registered_model_name: str, mlflow_tracking_uri:\
+          \ str) -> NamedTuple(\"Output\", [(\"model_version\", str), (\"run_id\"\
+          , str),]):\n    \"\"\"\n    Retrieve the on-production model version (model\
+          \ with a {\"stage\": \"Production\"} tag)\n    Args:\n        registered_model_name:\
+          \ The name of the registered model, it's the name passed as the \"registered_model_name\"\
+          \ argument to the mlflow.lightgbm.log_model function\n        mlflow_tracking_uri:\
+          \ The URI of the MLflow service\n    Returns:\n        A namedtuple consisting\
+          \ of the on-production model version and the corresponding MLflow Run ID\n\
+          \    \"\"\"\n    from mlflow import MlflowClient\n    from collections import\
+          \ namedtuple\n\n    mlflow_client = MlflowClient(tracking_uri=mlflow_tracking_uri)\n\
+          \    output = namedtuple(\"Output\", [\"model_version\", \"run_id\"])\n\
+          \    model_version = None # on-production model version\n    mlflow_run_id\
+          \ = None # corresponding MLflow Run ID\n\n    ### START CODE HERE\n    filter_string\
+          \ = f\"name='{registered_model_name}' AND tags.stage='Production'\"\n  \
+          \  versions = mlflow_client.search_model_versions(filter_string)\n    model_version\
+          \ = versions[0].version\n    mlflow_run_id = versions[0].run_id\n    ###\
+          \ END CODE HERE\n\n    return output(f\"{registered_model_name}-{model_version}\"\
+          , mlflow_run_id)\n\n"
+        image: python:3.11
+    exec-monitor:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - monitor
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'mlflow==2.9.2'\
+          \ 'evidently==0.4.15' 'boto3~=1.34.50' 'pydantic==1.10.13' 'scikit-learn>=1.2.0,<1.4.0'\
+          \ 'cython==0.29.36' 'kfp==2.0.1' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef monitor(\n        evidently_monitor_uri: str, \n        evidently_project_id:\
+          \ str,\n        column_mapping_dict: Dict[str, Any], \n        prod_dataset:\
+          \ Input[Dataset], \n        prod_model_version: str,\n        mlflow_tracking_uri:\
+          \ str,\n        mlflow_s3_endpoint_url: str, \n        mlflow_run_id: str,\n\
+          \        year: int,\n        quarter: int\n    ):\n    \"\"\"\n    Generate\
+          \ an Evidently Report and TestSuite for a given production dataset and push\
+          \ them to a given Evidently Workspace.\n    Args:\n        evidently_monitor_uri:\
+          \ The URL of the remote Evidently Workspace\n        evidently_project_id:\
+          \ The ID of the Evidently Project where the reports and test suites should\
+          \ be stored\n        column_mapping_dict: A dictionary containing the configuration\
+          \ of the column mapping\n        prod_dataset: An input of type Dataset\
+          \ where the production DataFrame (inputs+outputs+ground truth)\n       \
+          \ prod_model_version: The on-production model version to be monitored\n\
+          \        mlflow_tracking_uri: URI of MLflow's tracking server\n        mlflow_s3_endpoint_url:\
+          \ URL of MLflow's artifact store\n        mlflow_run_id: ID of the MLflow\
+          \ Run that trains the on-production model\n        year and quarter: The\
+          \ time range of the data to be monitored\n    \"\"\"\n\n    from typing\
+          \ import List\n    import pandas as pd\n    import mlflow\n    from evidently.report\
+          \ import Report\n    from evidently.test_suite import TestSuite\n    from\
+          \ evidently.metric_preset import DataDriftPreset, TargetDriftPreset, RegressionPreset\n\
+          \    from evidently.tests import TestValueMAE\n    from evidently import\
+          \ ColumnMapping\n    from evidently.ui.remote import RemoteWorkspace\n \
+          \   from datetime import datetime\n    import os\n\n    # This is the column\
+          \ mapping used by the prep_report and prep_regression_test functions\n \
+          \   column_mapping = ColumnMapping(**column_mapping_dict)\n\n    def prep_report(prod_df:\
+          \ pd.DataFrame, ref_df: pd.DataFrame, tags: List[str], timestamp: datetime)\
+          \ -> Report:\n        ### START CODE HERE\n        evid_report = Report(metrics=[RegressionPreset(),TargetDriftPreset(),DataDriftPreset()])\n\
+          \        evid_report.tags = tags\n        evid_report.timestamp = timestamp\n\
+          \        evid_report.run(reference_data=ref_df, current_data=prod_df, column_mapping=column_mapping)\n\
+          \n        return evid_report\n        ### END CODE HERE\n\n\n    def prep_regression_test(prod_df:\
+          \ pd.DataFrame, ref_df: pd.DataFrame, tags: List[str], timestamp: datetime)\
+          \ -> TestSuite:\n        ### START CODE HERE\n        evid_testsuite = TestSuite(tests=[TestValueMAE(lt=40000)])\n\
+          \        evid_testsuite.tags = tags\n        evid_testsuite.timestamp =\
+          \ timestamp\n        evid_testsuite.run(reference_data=ref_df, current_data=prod_df,\
+          \ column_mapping=column_mapping)\n\n        return evid_testsuite\n    \
+          \    ### END CODE HERE\n\n    prod_df = pd.read_parquet(prod_dataset.path)\n\
+          \n    mlflow.set_tracking_uri(mlflow_tracking_uri)\n    os.environ[\"MLFLOW_S3_ENDPOINT_URL\"\
+          ] = mlflow_s3_endpoint_url\n\n    # TODO: Download the reference dataset\
+          \ (a Parquet file) and load it into a DataFrame. \n    # The dataset was\
+          \ uploaded to MinIO (under the MLflow Run that trains the on-production\
+          \ model).\n    reference_data_artifact_path = \"reference_data\" # This\
+          \ is the run-relative artifact path of the reference dataset\n    ### START\
+          \ CODE HERE\n    path = mlflow.artifacts.download_artifacts(run_id=mlflow_run_id,artifact_path=reference_data_artifact_path)\n\
+          \    ref_df = pd.read_parquet(os.path.join(path, \"reference.parquet\"))\n\
+          \    ### END CODE HERE\n\n    time_tag = f\"{year}-quarter{quarter}\"\n\n\
+          \    # Tags of the Evidently Report and Test Suite\n    tags = [time_tag,\
+          \ prod_model_version]\n\n    # Timestamp of the Evidently Report and Test\
+          \ Suite\n    timestamp = None\n    if quarter < 4:\n        timestamp =\
+          \ datetime(year=year, month=quarter*3+1, day=1)\n    elif quarter == 4:\n\
+          \        timestamp = datetime(year=year+1, month=1, day=1)\n\n    # TODO:\
+          \ Generate Evidently Report and Test Suite\n    ### START CODE HERE\n  \
+          \  evid_report = prep_report(prod_df=prod_df, ref_df=ref_df, tags=tags,\
+          \ timestamp=timestamp)\n    evid_testsuite = prep_regression_test(prod_df=prod_df,\
+          \ ref_df=ref_df, tags=tags, timestamp=timestamp)\n    ### END CODE HERE\n\
+          \n    # Create a workspace instance (like a connection) to the remote Evidently\
+          \ Workspace \n    workspace = RemoteWorkspace(evidently_monitor_uri)\n\n\
+          \    # TODO: Upload the Report and TestSuite to the remote Evidently Workspace,\
+          \ just as you upload them to a local Workspace\n    ### START CODE HERE\n\
+          \    workspace.add_report(project_id = evidently_project_id, report = evid_report)\n\
+          \    workspace.add_test_suite(project_id = evidently_project_id, test_suite\
+          \ = evid_testsuite)\n    ### END CODE HERE\n\n"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          value: minioadmin
+        - name: AWS_SECRET_ACCESS_KEY
+          value: minioadmin
+        image: python:3.11
+pipelineInfo:
+  description: Monitoring model performance, target and data drift using Evidently
+  name: monitoring-pipeline
+root:
+  dag:
+    tasks:
+      combine-ground-truth:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-combine-ground-truth
+        inputs:
+          parameters:
+            ground_truth_bucket_name:
+              componentInputParameter: ground_truth_bucket_name
+            inputs_outputs_bucket_name:
+              componentInputParameter: inputs_outputs_bucket_name
+            quarter:
+              componentInputParameter: quarter
+            s3_endpoint_url:
+              componentInputParameter: mlflow_s3_endpoint_url
+            year:
+              componentInputParameter: year
+        taskInfo:
+          name: combine-ground-truth
+      get-production-model-version:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-get-production-model-version
+        inputs:
+          parameters:
+            mlflow_tracking_uri:
+              componentInputParameter: mlflow_tracking_uri
+            registered_model_name:
+              componentInputParameter: registered_model_name
+        taskInfo:
+          name: get-production-model-version
+      monitor:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-monitor
+        dependentTasks:
+        - combine-ground-truth
+        - get-production-model-version
+        inputs:
+          artifacts:
+            prod_dataset:
+              taskOutputArtifact:
+                outputArtifactKey: prod_data
+                producerTask: combine-ground-truth
+          parameters:
+            column_mapping_dict:
+              componentInputParameter: column_mapping_dict
+            evidently_monitor_uri:
+              componentInputParameter: evidently_monitor_uri
+            evidently_project_id:
+              componentInputParameter: evidently_project_id
+            mlflow_run_id:
+              taskOutputParameter:
+                outputParameterKey: run_id
+                producerTask: get-production-model-version
+            mlflow_s3_endpoint_url:
+              componentInputParameter: mlflow_s3_endpoint_url
+            mlflow_tracking_uri:
+              componentInputParameter: mlflow_tracking_uri
+            prod_model_version:
+              taskOutputParameter:
+                outputParameterKey: model_version
+                producerTask: get-production-model-version
+            quarter:
+              componentInputParameter: quarter
+            year:
+              componentInputParameter: year
+        taskInfo:
+          name: monitor
+  inputDefinitions:
+    parameters:
+      column_mapping_dict:
+        parameterType: STRUCT
+      evidently_monitor_uri:
+        parameterType: STRING
+      evidently_project_id:
+        parameterType: STRING
+      ground_truth_bucket_name:
+        parameterType: STRING
+      inputs_outputs_bucket_name:
+        parameterType: STRING
+      mlflow_s3_endpoint_url:
+        parameterType: STRING
+      mlflow_tracking_uri:
+        parameterType: STRING
+      quarter:
+        parameterType: NUMBER_INTEGER
+      registered_model_name:
+        parameterType: STRING
+      year:
+        parameterType: NUMBER_INTEGER
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.0.1

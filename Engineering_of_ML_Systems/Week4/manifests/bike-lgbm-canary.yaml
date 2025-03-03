@@ -1,0 +1,15 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: bike-lgbm
+  namespace: kserve-inference
+spec:
+  predictor:
+    serviceAccountName: kserve-sa
+    ### START CONF HERE
+    canaryTrafficPercent: 30
+    model:
+      modelFormat: 
+        name: lightgbm
+      storageUri: "s3://mlflow/6/78d7260bfc0d4c14a99d386673eabc19/artifacts/lgbm-bike" 
+    ### END CONF HERE

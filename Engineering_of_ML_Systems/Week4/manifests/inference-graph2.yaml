@@ -1,0 +1,32 @@
+apiVersion: "serving.kserve.io/v1alpha1"
+kind: InferenceGraph 
+metadata: 
+  name: my-graph2
+  namespace: kserve-inference
+spec: 
+  nodes: 
+    ### START CONF HERE
+    root:
+      routerType: Switch
+      steps:
+      - condition: "[@this].#(modelType==\"lgbm\")"
+        nodeName: lgbmNode
+      - condition: "[@this].#(modelType==\"xgb\")"
+        nodeName: xgbNode
+        
+    lgbmNode:
+      routerType: Ensemble
+      steps:
+      - serviceName: bike-lgbm-1
+        name: bike-lgbm-1
+      - serviceName: bike-lgbm-2
+        name: bike-lgbm-2
+
+    xgbNode:
+      routerType: Ensemble
+      steps:
+      - serviceName: bike-xgb-1
+        name: bike-xgb-1
+      - serviceName: bike-xgb-2
+        name: bike-xgb-2
+    ### END CONF HERE

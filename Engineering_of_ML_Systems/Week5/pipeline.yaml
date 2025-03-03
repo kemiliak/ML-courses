@@ -1,0 +1,618 @@
+# PIPELINE DEFINITION
+# Name: bike-demand-pipeline
+# Description: An example pipeline that deploys a model for bike demanding prediction
+# Inputs:
+#    hpo_trials: int
+#    mae_threshold: float
+#    mlflow_experiment_name: str
+#    mlflow_s3_endpoint_url: str
+#    mlflow_tracking_uri: str
+#    model_name: str
+#    random_seed: int
+#    url: str
+components:
+  comp-condition-1:
+    dag:
+      tasks:
+        deploy-model:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-deploy-model
+          dependentTasks:
+          - train
+          inputs:
+            parameters:
+              model_name:
+                componentInputParameter: pipelinechannel--model_name
+              storage_uri:
+                taskOutputParameter:
+                  outputParameterKey: Output
+                  producerTask: train
+          taskInfo:
+            name: deploy-model
+        train:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-train
+          inputs:
+            artifacts:
+              test_x_csv:
+                componentInputArtifact: pipelinechannel--preprocess-data-test_x_csv
+              test_y_csv:
+                componentInputArtifact: pipelinechannel--preprocess-data-test_y_csv
+              train_x_csv:
+                componentInputArtifact: pipelinechannel--preprocess-data-train_x_csv
+              train_y_csv:
+                componentInputArtifact: pipelinechannel--preprocess-data-train_y_csv
+            parameters:
+              hyperparams:
+                componentInputParameter: pipelinechannel--hpo-hyperparams
+              mlflow_experiment_name:
+                componentInputParameter: pipelinechannel--mlflow_experiment_name
+              mlflow_s3_endpoint_url:
+                componentInputParameter: pipelinechannel--mlflow_s3_endpoint_url
+              mlflow_tracking_uri:
+                componentInputParameter: pipelinechannel--mlflow_tracking_uri
+              model_artifact_path:
+                componentInputParameter: pipelinechannel--model_name
+          taskInfo:
+            name: train
+    inputDefinitions:
+      artifacts:
+        pipelinechannel--preprocess-data-test_x_csv:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        pipelinechannel--preprocess-data-test_y_csv:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        pipelinechannel--preprocess-data-train_x_csv:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        pipelinechannel--preprocess-data-train_y_csv:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        pipelinechannel--hpo-best_mae:
+          parameterType: NUMBER_DOUBLE
+        pipelinechannel--hpo-hyperparams:
+          parameterType: STRUCT
+        pipelinechannel--mae_threshold:
+          parameterType: NUMBER_DOUBLE
+        pipelinechannel--mlflow_experiment_name:
+          parameterType: STRING
+        pipelinechannel--mlflow_s3_endpoint_url:
+          parameterType: STRING
+        pipelinechannel--mlflow_tracking_uri:
+          parameterType: STRING
+        pipelinechannel--model_name:
+          parameterType: STRING
+  comp-deploy-model:
+    executorLabel: exec-deploy-model
+    inputDefinitions:
+      parameters:
+        model_name:
+          parameterType: STRING
+        storage_uri:
+          parameterType: STRING
+  comp-hpo:
+    executorLabel: exec-hpo
+    inputDefinitions:
+      artifacts:
+        test_x_csv:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        test_y_csv:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        train_x_csv:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        train_y_csv:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        hpo_trials:
+          defaultValue: 2.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        random_seed:
+          defaultValue: 42.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+    outputDefinitions:
+      parameters:
+        best_mae:
+          parameterType: NUMBER_DOUBLE
+        hyperparams:
+          parameterType: STRUCT
+  comp-preprocess-data:
+    executorLabel: exec-preprocess-data
+    inputDefinitions:
+      artifacts:
+        data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        test_x_csv:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        test_y_csv:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        train_x_csv:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        train_y_csv:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-pull-data:
+    executorLabel: exec-pull-data
+    inputDefinitions:
+      parameters:
+        url:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-train:
+    executorLabel: exec-train
+    inputDefinitions:
+      artifacts:
+        test_x_csv:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        test_y_csv:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        train_x_csv:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        train_y_csv:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        hyperparams:
+          parameterType: STRUCT
+        mlflow_experiment_name:
+          parameterType: STRING
+        mlflow_s3_endpoint_url:
+          parameterType: STRING
+        mlflow_tracking_uri:
+          parameterType: STRING
+        model_artifact_path:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
+deploymentSpec:
+  executors:
+    exec-deploy-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - deploy_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'kserve==0.11.2'\
+          \ 'kfp==2.0.1' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef deploy_model(model_name: str, storage_uri: str):\n    \"\"\"\n\
+          \    Args:\n        model_name: the name of the deployed inference service\n\
+          \        storage_uri: the URI of the saved model in MLflow's artifact store\n\
+          \    \"\"\"\n    from kubernetes import client\n    from kserve import KServeClient\n\
+          \    from kserve import constants\n    from kserve import V1beta1InferenceService\n\
+          \    from kserve import V1beta1InferenceServiceSpec\n    from kserve import\
+          \ V1beta1PredictorSpec\n    from kserve import V1beta1ModelSpec\n    from\
+          \ kserve import V1beta1ModelFormat\n    import logging\n\n    logging.basicConfig(level=logging.INFO)\n\
+          \    logger = logging.getLogger(__name__)\n\n    namespace = \"kserve-inference\"\
+          \n    service_account_name = \"kserve-sa\"\n    api_version = constants.KSERVE_V1BETA1\n\
+          \    logger.info(f\"MODEL URI: {storage_uri}\")\n\n    modelspec = V1beta1ModelSpec(\n\
+          \        storage_uri=storage_uri,\n        model_format=V1beta1ModelFormat(name=\"\
+          mlflow\"),\n        protocol_version=\"v2\"\n    )\n\n    ### START CODE\
+          \ HERE\n    isvc = V1beta1InferenceService(api_version=api_version,\n  \
+          \                             kind=constants.KSERVE_KIND,\n            \
+          \                   metadata=client.V1ObjectMeta(\n                    \
+          \               name=model_name, namespace=namespace),\n               \
+          \                spec=V1beta1InferenceServiceSpec(\n                   \
+          \                predictor=V1beta1PredictorSpec(\n                     \
+          \                  model=modelspec,\n                                  \
+          \     service_account_name=service_account_name))\n                    \
+          \           )\n\n    kserve = KServeClient()\n    try:\n        kserve.create(isvc)\n\
+          \    except:\n        kserve.patch(name=model_name, inferenceservice=isvc,\
+          \ namespace=namespace)\n    try:\n        kserve.wait_isvc_ready(name=model_name,\
+          \ namespace=namespace, timeout_seconds=360)\n    except:\n        TimeoutError\n\
+          \    ### END CODE HERE\n\n"
+        image: python:3.11
+    exec-hpo:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - hpo
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'pandas~=2.2.0'\
+          \ 'numpy~=1.26.4' 'lightgbm==3.3.5' 'optuna==3.5.0' 'scikit-learn~=1.4.0'\
+          \ 'kfp==2.0.1' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef hpo(\n    train_x_csv: Input[Dataset],\n    train_y_csv: Input[Dataset],\n\
+          \    test_x_csv: Input[Dataset],\n    test_y_csv: Input[Dataset],\n    hpo_trials:\
+          \ int = 2,\n    random_seed: int = 42\n) -> NamedTuple(\n    \"Output\"\
+          ,\n    [\n        (\"hyperparams\", Dict[str, Any]),\n        (\"best_mae\"\
+          , float),\n    ],\n):\n    \"\"\"\n    Args:\n        train_x_csv: Input\
+          \ where the training feature data is saved\n        train_y_csv: Input where\
+          \ the training target data is saved\n        test_x_csv: Input where the\
+          \ test feature data is saved\n        test_y_csv: Input where the test target\
+          \ data is saved\n        hpo_trials: The number of trials that the Optuna\
+          \ study should run\n        random_seed: The random seed used for model\
+          \ training and t TPESampler\n    Returns:\n        namedtuple(\"Output\"\
+          , [\"hyperparams\", \"best_mae\"]) where hyperparams is the best hyperparameter\
+          \ combination found by the optimization \n        and best_mae is the best\
+          \ MAE found by the optimization. The hyperparams is a dictionary where the\
+          \ keys are the hyperparameter names \n        and values the hyperparameter\
+          \ values. It should also contain the random_state used in model training.\
+          \ \n        The returned namedtuple should be like:\n        Output(hyperparams={'learning_rate':\
+          \ ..., 'colsample_bytree': ..., 'num_leaves': ..., 'random_state': <random_seed>},\
+          \ best_mae=...)  \n    \"\"\"\n    # TODO:\n    # 1. Read the feature and\
+          \ target datasets \n    # 2. Define the objective function\n    # 3. Create\
+          \ an Optuna study and run it. Assign the study to the \"study\" variable,\
+          \ i.e., study=optuna.create_study(...)\n    ### START CODE HERE\n    import\
+          \ pandas as pd\n    from sklearn.metrics import mean_absolute_error\n  \
+          \  import optuna\n    import lightgbm\n    train_x = pd.read_csv(train_x_csv.path)\n\
+          \    train_y = pd.read_csv(train_y_csv.path)\n    test_x = pd.read_csv(test_x_csv.path)\n\
+          \    test_y = pd.read_csv(test_y_csv.path)\n\n    def objective_func(trial):\n\
+          \        params = {\n        \"learning_rate\": trial.suggest_float(\"learning_rate\"\
+          , 0.001, 0.1, log=True),\n        \"colsample_bytree\": trial.suggest_float(\"\
+          colsample_bytree\", 0.5, 1),\n        \"num_leaves\": trial.suggest_int(\"\
+          num_leaves\", 2, 2**10),\n        \"random_state\": random_seed,\n     \
+          \   }\n        model = lightgbm.LGBMRegressor(**params)\n        model.fit(train_x,\
+          \ train_y)\n        preds = model.predict(test_x)\n        mae = mean_absolute_error(test_y,\
+          \ preds)\n        return mae\n\n    study = optuna.create_study(direction=\"\
+          minimize\", sampler=optuna.samplers.TPESampler(seed=random_seed))\n    study.optimize(objective_func,\
+          \ n_trials=hpo_trials)\n    ### END CODE HERE\n\n    # Insert the random_state\
+          \ into the hyperparams when prepare the output namedtuple\n    hyperparams\
+          \ = {key: value for key, value in study.best_params.items()}\n    hyperparams[\"\
+          random_state\"] = random_seed\n\n    # TODO: Construct and return the namedtuple\n\
+          \    ### START CODE HERE\n    Output = NamedTuple(\"Output\", [(\"hyperparams\"\
+          , Dict[str, Any]), (\"best_mae\", float)])\n    return Output(hyperparams=hyperparams,\
+          \ best_mae=study.best_value)\n    ### END CODE HERE\n\n"
+        image: python:3.11
+    exec-preprocess-data:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - preprocess_data
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'pandas~=2.2.0'\
+          \ 'kfp==2.0.1' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef preprocess_data(\n    data: Input[Dataset],\n    train_x_csv:\
+          \ Output[Dataset],\n    train_y_csv: Output[Dataset],\n    test_x_csv: Output[Dataset],\n\
+          \    test_y_csv: Output[Dataset],\n):\n    \"\"\"\n    Args:\n        data:\
+          \ Input of type Dataset where the dataset is read from\n        train_x_csv:\
+          \ Output of type Dataset where the training features are saved\n       \
+          \ train_y_csv: Output of type Dataset where the training target is saved\n\
+          \        test_x_csv: Output of type Dataset where the test features are\
+          \ saved\n        test_y_csv: Output of type Dataset where the test target\
+          \ is saved\n    \"\"\"\n    target = \"count\"\n\n    ### START CODE HERE\n\
+          \    import pandas as pd\n    df = pd.read_csv(data.path)\n    df[\"datetime\"\
+          ] = pd.to_datetime(df[\"datetime\"])\n    df[\"hour\"] = df[\"datetime\"\
+          ].dt.hour\n    df[\"day\"] = df[\"datetime\"].dt.day\n    df['month'] =\
+          \ df['datetime'].dt.month\n    df = df.drop([\"datetime\", \"casual\", \"\
+          registered\"], axis=1)\n    train_df = df.iloc[:-168]\n    test_df = df.iloc[-168:]\n\
+          \    train_x = train_df.drop([target], axis=1)\n    train_y = train_df[[target]]\n\
+          \    test_x = test_df.drop([target], axis=1)\n    test_y = test_df[[target]]\n\
+          \    train_x.to_csv(train_x_csv.path, index=None)\n    train_y.to_csv(train_y_csv.path,\
+          \ index=None)\n    test_x.to_csv(test_x_csv.path, index=None)\n    test_y.to_csv(test_y_csv.path,\
+          \ index=None)\n    ### END CODE HERE\n\n"
+        image: python:3.11
+    exec-pull-data:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - pull_data
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'pandas~=2.2.0'\
+          \ 'kfp==2.0.1' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef pull_data(url: str, data: Output[Dataset]):\n    \"\"\"\n   \
+          \ Args:\n        url: Dataset URL\n        data: Output of type Dataset\
+          \ where the downloaded dataset is saved\n    \"\"\"\n    ### START CODE\
+          \ HERE\n    import pandas as pd\n    df = pd.read_csv(url, sep=\",\")\n\
+          \    df.to_csv(data.path, index=None)\n    ### END CODE HERE\n\n"
+        image: python:3.11
+    exec-train:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'pandas~=2.2.0'\
+          \ 'numpy~=1.26.4' 'lightgbm~=3.3.5' 'scikit-learn~=1.4.0' 'mlflow==2.9.2'\
+          \ 'boto3~=1.34.40' 'kfp==2.0.1' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train(\n    train_x_csv: Input[Dataset],\n    train_y_csv: Input[Dataset],\n\
+          \    test_x_csv: Input[Dataset],\n    test_y_csv: Input[Dataset],\n    mlflow_experiment_name:\
+          \ str,\n    mlflow_tracking_uri: str,\n    mlflow_s3_endpoint_url: str,\n\
+          \    model_artifact_path: str,\n    hyperparams: Dict[str, Any],\n) -> str:\
+          \ \n    \"\"\"\n    Args:\n        train_x_csv: Input where the training\
+          \ feature data is saved\n        train_y_csv: Input where the training target\
+          \ data is saved\n        test_x_csv: Input where the test feature data is\
+          \ saved\n        test_y_csv: Input where the test target data is saved\n\
+          \        mlflow_experiment_name: Name of the MLflow experiment\n       \
+          \ mlflow_tracking_uri: URI of MLflow's tracking server\n        mlflow_s3_endpoint_url:\
+          \ URL of MLflow's artifact store\n        model_artifact_path: The path\
+          \ where the artifacts of the model are stored in MLflow's artifact store.\
+          \ It's relative to the MLflow Run.\n        hyperparams: Hyperparameters\
+          \ that need to be configured. The hyperparameters will be passed as a dictionary\
+          \ like {\"num_leaves\": 1023, \"learning_rate\": 0.05}\n\n    Returns: \n\
+          \        The S3 URI of the saved model in Mlflow's artifact store, e.g.,\
+          \ s3://mlflow/13/e5559bc.../artifacts/bike-demand\n    \"\"\"\n    ### START\
+          \ CODE HERE\n    from sklearn.metrics import mean_squared_error, mean_absolute_error,\
+          \ r2_score\n    import logging\n    import numpy as np\n    import os\n\
+          \    import mlflow\n    import pandas as pd\n    import lightgbm\n\n   \
+          \ logging.basicConfig(level=logging.INFO)\n    logger = logging.getLogger(__name__)\n\
+          \n    def eval_metrics(actual, pred):\n        rmse = np.sqrt(mean_squared_error(actual,\
+          \ pred))\n        mae = mean_absolute_error(actual, pred)\n        r2 =\
+          \ r2_score(actual, pred)\n        return rmse, mae, r2\n\n    os.environ[\"\
+          MLFLOW_S3_ENDPOINT_URL\"] = mlflow_s3_endpoint_url\n\n    mlflow.set_tracking_uri(mlflow_tracking_uri)\n\
+          \    mlflow.set_experiment(mlflow_experiment_name)\n\n    train_x = pd.read_csv(train_x_csv.path)\n\
+          \    train_y = pd.read_csv(train_y_csv.path)\n    test_x = pd.read_csv(test_x_csv.path)\n\
+          \    test_y = pd.read_csv(test_y_csv.path)\n\n    with mlflow.start_run()\
+          \ as run:\n        run_id = run.info.run_id\n        logger.info(f\"Run\
+          \ ID: {run_id}\")\n        model = lightgbm.LGBMRegressor(**hyperparams)\n\
+          \n        logger.info(\"Fitting model...\")\n        model.fit(train_x,\
+          \ train_y)\n\n        logger.info(\"Predicting...\")\n        predicted_qualities\
+          \ = model.predict(test_x)\n        rmse, mae, r2 = eval_metrics(test_y,\
+          \ predicted_qualities)\n        logger.info(f\"LightGBM model with hyperparameters:\
+          \ {hyperparams}\")\n        logger.info(f\"RMSE: {rmse}\")\n        logger.info(f\"\
+          MAE: {mae}\")\n        logger.info(f\"R2: {r2}\")\n\n        logger.info(\"\
+          Logging parameters and metrics to MLflow\")\n        for key, value in hyperparams.items():\n\
+          \            mlflow.log_param(key, value)\n        mlflow.log_metric(\"\
+          rmse\", rmse)\n        mlflow.log_metric(\"mae\", mae)\n        mlflow.log_metric(\"\
+          r2\", r2)\n\n        logger.info(\"Logging trained model\")\n        mlflow.lightgbm.log_model(\n\
+          \            lgb_model=model,\n            artifact_path=model_artifact_path,\n\
+          \            registered_model_name=\"Week5LgbmBikeDemand\"\n        )\n\n\
+          \        storage_uri = mlflow.get_artifact_uri(model_artifact_path) \n \
+          \       return storage_uri\n    ### END CODE HERE\n\n"
+        image: python:3.11
+pipelineInfo:
+  description: An example pipeline that deploys a model for bike demanding prediction
+  name: bike-demand-pipeline
+root:
+  dag:
+    tasks:
+      condition-1:
+        componentRef:
+          name: comp-condition-1
+        dependentTasks:
+        - hpo
+        - preprocess-data
+        inputs:
+          artifacts:
+            pipelinechannel--preprocess-data-test_x_csv:
+              taskOutputArtifact:
+                outputArtifactKey: test_x_csv
+                producerTask: preprocess-data
+            pipelinechannel--preprocess-data-test_y_csv:
+              taskOutputArtifact:
+                outputArtifactKey: test_y_csv
+                producerTask: preprocess-data
+            pipelinechannel--preprocess-data-train_x_csv:
+              taskOutputArtifact:
+                outputArtifactKey: train_x_csv
+                producerTask: preprocess-data
+            pipelinechannel--preprocess-data-train_y_csv:
+              taskOutputArtifact:
+                outputArtifactKey: train_y_csv
+                producerTask: preprocess-data
+          parameters:
+            pipelinechannel--hpo-best_mae:
+              taskOutputParameter:
+                outputParameterKey: best_mae
+                producerTask: hpo
+            pipelinechannel--hpo-hyperparams:
+              taskOutputParameter:
+                outputParameterKey: hyperparams
+                producerTask: hpo
+            pipelinechannel--mae_threshold:
+              componentInputParameter: mae_threshold
+            pipelinechannel--mlflow_experiment_name:
+              componentInputParameter: mlflow_experiment_name
+            pipelinechannel--mlflow_s3_endpoint_url:
+              componentInputParameter: mlflow_s3_endpoint_url
+            pipelinechannel--mlflow_tracking_uri:
+              componentInputParameter: mlflow_tracking_uri
+            pipelinechannel--model_name:
+              componentInputParameter: model_name
+        taskInfo:
+          name: condition-1
+        triggerPolicy:
+          condition: inputs.parameter_values['pipelinechannel--hpo-best_mae'] <= inputs.parameter_values['pipelinechannel--mae_threshold']
+      hpo:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-hpo
+        dependentTasks:
+        - preprocess-data
+        inputs:
+          artifacts:
+            test_x_csv:
+              taskOutputArtifact:
+                outputArtifactKey: test_x_csv
+                producerTask: preprocess-data
+            test_y_csv:
+              taskOutputArtifact:
+                outputArtifactKey: test_y_csv
+                producerTask: preprocess-data
+            train_x_csv:
+              taskOutputArtifact:
+                outputArtifactKey: train_x_csv
+                producerTask: preprocess-data
+            train_y_csv:
+              taskOutputArtifact:
+                outputArtifactKey: train_y_csv
+                producerTask: preprocess-data
+          parameters:
+            hpo_trials:
+              componentInputParameter: hpo_trials
+            random_seed:
+              componentInputParameter: random_seed
+        taskInfo:
+          name: hpo
+      preprocess-data:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-preprocess-data
+        dependentTasks:
+        - pull-data
+        inputs:
+          artifacts:
+            data:
+              taskOutputArtifact:
+                outputArtifactKey: data
+                producerTask: pull-data
+        taskInfo:
+          name: preprocess-data
+      pull-data:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-pull-data
+        inputs:
+          parameters:
+            url:
+              componentInputParameter: url
+        taskInfo:
+          name: pull-data
+  inputDefinitions:
+    parameters:
+      hpo_trials:
+        parameterType: NUMBER_INTEGER
+      mae_threshold:
+        parameterType: NUMBER_DOUBLE
+      mlflow_experiment_name:
+        parameterType: STRING
+      mlflow_s3_endpoint_url:
+        parameterType: STRING
+      mlflow_tracking_uri:
+        parameterType: STRING
+      model_name:
+        parameterType: STRING
+      random_seed:
+        parameterType: NUMBER_INTEGER
+      url:
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.0.1
+---
+platforms:
+  kubernetes:
+    deploymentSpec:
+      executors:
+        exec-train:
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: AWS_ACCESS_KEY_ID
+              secretKey: AWS_ACCESS_KEY_ID
+            - envVar: AWS_SECRET_ACCESS_KEY
+              secretKey: AWS_SECRET_ACCESS_KEY
+            secretName: aws-secret

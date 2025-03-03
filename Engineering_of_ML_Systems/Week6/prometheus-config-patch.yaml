@@ -1,0 +1,23 @@
+data:
+  prometheus.rules: |-
+    groups:
+    - name: InferenceService
+      rules:
+      # An example alerting rule
+      - alert: HighPredictionLatency
+        expr: histogram_quantile(0.9, rate(revision_app_request_latencies_bucket{isvc_name="wine-quality"}[5m])) > 500
+        for: 5s
+        labels:
+          severity: warning
+        annotations:
+          summary: High prediction latency
+
+      - alert: 4xxResponses
+        ### BEGIN ALERTING RULE
+        expr: increase(revision_app_request_count{namespace_name="kserve-inference", isvc_name="house-price", response_code_class="4xx"}[1m])> 10
+        for: 0s
+        labels:
+          severity: warning
+        ### END ALERTING RULE
+        annotations:
+          summary: The house-price inference service has returned too many 4xx responses
